@@ -49,3 +49,22 @@ pub struct UserSession {
 
     pub revoked_at: Option<DateTime<Utc>>,
 }
+
+#[derive(Debug, Clone, FromRow, Serialize, Deserialize)]
+pub struct Team {
+    pub id: Uuid,
+    pub name: String,
+    pub slug: String,
+    pub created_by: String,
+    pub created_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
+}
+
+#[derive(Debug, Clone, FromRow, Serialize, Deserialize)]
+pub struct TeamMember {
+    pub id: Uuid,
+    pub team_id: Uuid,
+    pub user_id: String,
+    pub role: String,
+    pub created_at: DateTime<Utc>,
+}

@@ -12,6 +12,7 @@ pub(crate) mod notifications;
 pub(crate) mod sessions;
 pub(crate) mod settings;
 pub mod slack;
+pub(crate) mod teams;
 pub(crate) mod traffic;
 pub(crate) mod users;
 
@@ -24,6 +25,7 @@ fn v1_routes(state: AppState, config: &Config) -> Router<AppState> {
         .nest("/dns", dns::routes(state.clone()))
         .nest("/admin", admin::routes(state.clone()))
         .nest("/settings", settings::routes(state.clone()))
+        .nest("/teams", teams::routes(state.clone()))
         .nest("/logs", logs::routes(state.clone()))
         .nest(
             "/notifications",

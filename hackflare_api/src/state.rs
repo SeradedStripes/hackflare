@@ -18,8 +18,8 @@ use crate::{
     config::Config,
     services::{
         api_keys::ApiKeysService, config_overrides::ConfigOverridesService, email::EmailService,
-        password_reset::PasswordResetService, user_sessions::UserSessionsService,
-        users::UsersService,
+        password_reset::PasswordResetService, teams::TeamsService,
+        user_sessions::UserSessionsService, users::UsersService,
     },
 };
 
@@ -34,6 +34,7 @@ pub struct AppState {
 
     // -- services --
     pub(crate) api_keys: ApiKeysService,
+    pub(crate) teams: TeamsService,
     pub(crate) users: UsersService,
     pub(crate) user_sessions: UserSessionsService,
     pub(crate) config_overrides: ConfigOverridesService,
@@ -138,6 +139,7 @@ impl AppState {
         let user_sessions = UserSessionsService::new(db.clone());
         let config_overrides = ConfigOverridesService::new(db.clone());
         let api_keys = ApiKeysService::new(db.clone());
+        let teams = TeamsService::new(db.clone());
 
         let persistence: Arc<dyn ZonePersistence> = Arc::new(PostgresPersistence::new(db.clone()));
         let dns_authority = Arc::new(AuthorityStore::with_persistence(
@@ -165,6 +167,7 @@ impl AppState {
             db,
             dns_authority,
             api_keys,
+            teams,
             users,
             user_sessions,
             config_overrides,
