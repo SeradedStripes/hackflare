@@ -26,6 +26,7 @@ import {
   ChevronRight,
   Shield,
   MessageCircleQuestionMark,
+  Users,
 } from "lucide-react"
 
 import {
@@ -245,6 +246,19 @@ export function AppSidebar() {
                     )}
                   </SidebarMenu>
                 )}
+              </SidebarMenuItem>
+
+              <SidebarMenuItem>
+                <SidebarMenuButton asChild isActive={isActive("/dash/teams")}>
+                  <NavLink
+                    prefetch="intent"
+                    to="/dash/teams"
+                    className="flex items-center gap-2"
+                  >
+                    <Users className="h-4 w-4" />
+                    <span>Teams</span>
+                  </NavLink>
+                </SidebarMenuButton>
               </SidebarMenuItem>
             </SidebarMenu>
           </SidebarGroupContent>

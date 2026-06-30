@@ -17,6 +17,26 @@ export interface AuthenticatedUser {
 export interface DnsZone {
   name: string
   ns_verified: boolean
+  team_id: string | null
+}
+
+export interface Team {
+  id: string
+  name: string
+  slug: string
+  role: string
+  member_count: number
+  created_at: string
+}
+
+export interface TeamMember {
+  id: string
+  user_id: string
+  email: string
+  first_name: string
+  last_name: string
+  role: string
+  created_at: string
 }
 
 export interface DnsRecord {
@@ -137,6 +157,7 @@ export interface ApiKey {
   id: string
   name: string
   prefix: string
+  team_id: string | null
   created_at: string
   last_used_at: string | null
   revoked: boolean
@@ -303,10 +324,10 @@ export const api = {
   dns: {
     listZones: () => request<DnsZone[]>("/api/v1/dns/zones"),
 
-    createZone: (name: string) =>
+    createZone: (name: string, team_id?: string) =>
       request<DnsZone>("/api/v1/dns/zones", {
         method: "POST",
-        body: { name },
+        body: { name, team_id: team_id || null },
       }),
 
     deleteZone: (zoneName: string) =>
@@ -367,10 +388,10 @@ export const api = {
   settings: {
     listApiKeys: () => request<ApiKey[]>("/api/v1/settings/api-keys"),
 
-    createApiKey: (name: string) =>
+    createApiKey: (name: string, team_id?: string) =>
       request<CreatedApiKey>("/api/v1/settings/api-keys", {
         method: "POST",
-        body: { name },
+        body: { name, team_id: team_id || null },
       }),
 
     revokeApiKey: (id: string) =>
@@ -440,5 +461,48 @@ export const api = {
         method: "POST",
         body: { text },
       }),
+  },
+
+  teams: {
+    list: () => request<Team[]>("/api/v1/teams"),
+
+    create: (name: string) =>
+      request<{ id: string; name: string; slug: string }>("/api/v1/teams", {
+        method: "POST",
+        body: { name },
+      }),
+
+    get: (teamId: string) =>
+      request<Team>(`/api/v1/teams/${teamId}`),
+
+    update: (teamId: string, name: string) =>
+      request<{ id: string; name: string; slug: string }>(
+        `/api/v1/teams/${teamId}`,
+        { method: "PUT", body: { name } }
+      ),
+
+    delete: (teamId: string) =>
+      request<void>(`/api/v1/teams/${teamId}`, { method: "DELETE" }),
+
+    listMembers: (teamId: string) =>
+      request<TeamMember[]>(`/api/v1/teams/${teamId}/members`),
+
+    addMember: (teamId: string, email: string, role?: string) =>
+      request<{ id: string; user_id: string; role: string }>(
+        `/api/v1/teams/${teamId}/members`,
+        { method: "POST", body: { email, role: role || "member" } }
+      ),
+
+    updateMemberRole: (teamId: string, userId: string, role: string) =>
+      request<{ id: string; user_id: string; role: string }>(
+        `/api/v1/teams/${teamId}/members/${userId}`,
+        { method: "PUT", body: { role } }
+      ),
+
+    removeMember: (teamId: string, userId: string) =>
+      request<void>(
+        `/api/v1/teams/${teamId}/members/${userId}`,
+        { method: "DELETE" }
+      ),
   },
 }

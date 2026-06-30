@@ -33,7 +33,14 @@ import {
   DialogTrigger,
 } from "~/components/ui/dialog"
 import { getUserDisplayName, useAuth } from "~/lib/auth-context"
-import { api, friendlyError, type ApiKey, type CreatedApiKey } from "~/lib/api"
+import { api, friendlyError, type ApiKey, type CreatedApiKey, type Team } from "~/lib/api"
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "~/components/ui/select"
 
 export default function Settings() {
   const { user } = useAuth()
@@ -55,6 +62,7 @@ export default function Settings() {
 
   useEffect(() => {
     loadKeys()
+    api.teams.list().then(setTeams).catch(() => {})
   }, [loadKeys])
 
   const [createOpen, setCreateOpen] = useState(false)
@@ -62,14 +70,17 @@ export default function Settings() {
   const [creating, setCreating] = useState(false)
   const [createdKey, setCreatedKey] = useState<CreatedApiKey | null>(null)
   const [copied, setCopied] = useState(false)
+  const [teams, setTeams] = useState<Team[]>([])
+  const [selectedTeamId, setSelectedTeamId] = useState("")
 
   const createKey = async () => {
     if (!newKeyName.trim()) return
     setCreating(true)
     try {
-      const created = await api.settings.createApiKey(newKeyName.trim())
+      const created = await api.settings.createApiKey(newKeyName.trim(), selectedTeamId || undefined)
       setCreatedKey(created)
       setNewKeyName("")
+      setSelectedTeamId("")
       await loadKeys()
     } catch {
       /* ignore */
@@ -192,22 +203,39 @@ export default function Settings() {
                       Give your key a name so you can identify it later.
                     </DialogDescription>
                   </DialogHeader>
-                  <div className="flex items-center gap-2">
-                    <Input
-                      value={newKeyName}
-                      onChange={(e) => setNewKeyName(e.target.value)}
-                      placeholder="e.g. Production CI"
-                      className="flex-1"
-                      onKeyDown={(e) =>
-                        e.key === "Enter" && !creating && createKey()
-                      }
-                    />
-                    <Button
-                      onClick={createKey}
-                      disabled={creating || !newKeyName.trim()}
-                    >
-                      {creating ? "Creating..." : "Create"}
-                    </Button>
+                  <div className="space-y-4">
+                    <div className="flex items-center gap-2">
+                      <Input
+                        value={newKeyName}
+                        onChange={(e) => setNewKeyName(e.target.value)}
+                        placeholder="e.g. Production CI"
+                        className="flex-1"
+                        onKeyDown={(e) =>
+                          e.key === "Enter" && !creating && createKey()
+                        }
+                      />
+                      <Button
+                        onClick={createKey}
+                        disabled={creating || !newKeyName.trim()}
+                      >
+                        {creating ? "Creating..." : "Create"}
+                      </Button>
+                    </div>
+                    {teams.length > 0 && (
+                      <Select value={selectedTeamId} onValueChange={setSelectedTeamId}>
+                        <SelectTrigger className="w-full">
+                          <SelectValue placeholder="Personal" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="">Personal</SelectItem>
+                          {teams.map((t) => (
+                            <SelectItem key={t.id} value={t.id}>
+                              {t.name}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    )}
                   </div>
                 </DialogContent>
               ) : (
@@ -548,6 +576,14 @@ function KeyRow({
         <p className="text-sm font-medium">{apiKey.name}</p>
         <p className="mt-0.5 text-xs text-zinc-600 dark:text-zinc-400">
           <span className="font-mono">{apiKey.prefix}...</span>
+          {apiKey.team_id && (
+            <>
+              <span className="mx-1.5">·</span>
+              <span className="text-orange-600 dark:text-orange-400">
+                Team
+              </span>
+            </>
+          )}
           <span className="mx-1.5">·</span>
           Created {new Date(apiKey.created_at).toLocaleDateString()}
           {apiKey.last_used_at && (

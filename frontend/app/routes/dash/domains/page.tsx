@@ -1,9 +1,16 @@
 import { Plus, Globe, Shield, Clock, Loader2, AlertCircle, Trash2 } from "lucide-react"
 import { Link, NavLink, useNavigate } from "react-router"
 import { useEffect, useState } from "react"
-import { api, type DnsZone } from "~/lib/api"
+import { api, type DnsZone, type Team } from "~/lib/api"
 import { Button } from "~/components/ui/button"
 import { useToast } from "~/lib/toast"
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "~/components/ui/select"
 import {
   Card,
   CardContent,
@@ -43,6 +50,8 @@ export default function Domains() {
   const [verifying, setVerifying] = useState<Record<string, boolean>>({})
   const [deleteTarget, setDeleteTarget] = useState<string | null>(null)
   const [deleting, setDeleting] = useState(false)
+  const [teams, setTeams] = useState<Team[]>([])
+  const [selectedTeamId, setSelectedTeamId] = useState<string>("")
 
   const fetchZones = async () => {
     setLoading(true)
@@ -64,6 +73,7 @@ export default function Domains() {
 
   useEffect(() => {
     void fetchZones()
+    api.teams.list().then(setTeams).catch(() => {})
   }, [])
 
   const handleAddDomain = async () => {
@@ -72,8 +82,9 @@ export default function Domains() {
 
     setAdding(true)
     try {
-      await api.dns.createZone(name)
+      await api.dns.createZone(name, selectedTeamId || undefined)
       setDomainInput("")
+      setSelectedTeamId("")
       setOpen(false)
       toast("Domain added", "success")
       await fetchZones()
@@ -165,6 +176,24 @@ export default function Domains() {
                   disabled={adding}
                 />
               </div>
+              {teams.length > 0 && (
+                <div className="space-y-2">
+                  <Label>Team (optional)</Label>
+                  <Select value={selectedTeamId} onValueChange={setSelectedTeamId}>
+                    <SelectTrigger className="w-full">
+                      <SelectValue placeholder="Personal" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="">Personal</SelectItem>
+                      {teams.map((t) => (
+                        <SelectItem key={t.id} value={t.id}>
+                          {t.name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              )}
             </div>
             <DialogFooter>
               <Button variant="outline" onClick={() => setOpen(false)} disabled={adding}>
