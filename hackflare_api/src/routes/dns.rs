@@ -9,6 +9,7 @@ use axum::{
 use hackflare_dns::dns::authoritative::resolve_ns_authoritative;
 use serde::{Deserialize, Serialize};
 use sqlx::PgPool;
+use uuid::Uuid;
 
 use crate::{middlewares::auth_middleware, models::CurrentUser, state::AppState};
 
@@ -18,6 +19,7 @@ use crate::{middlewares::auth_middleware, models::CurrentUser, state::AppState};
 struct ZoneResponse {
     name: String,
     ns_verified: bool,
+    team_id: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -35,6 +37,7 @@ struct RecordResponse {
 #[derive(Deserialize)]
 struct CreateZoneRequest {
     name: String,
+    team_id: Option<Uuid>,
 }
 
 #[derive(Deserialize)]
@@ -107,14 +110,28 @@ async fn ensure_zone_ownership(
     zone_name: &str,
     user_id: &str,
 ) -> Result<(), StatusCode> {
-    let result: Option<String> =
-        sqlx::query_scalar("SELECT user_id FROM dns_zones WHERE name = $1")
+    let row: Option<(Option<String>, Option<Uuid>)> =
+        sqlx::query_as("SELECT user_id, team_id FROM dns_zones WHERE name = $1")
             .bind(zone_name)
             .fetch_optional(db)
             .await
             .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-    match result.as_deref() {
-        Some(owner) if owner == user_id => Ok(()),
+
+    match row {
+        Some((Some(owner), _)) if owner == user_id => Ok(()),
+        Some((_, Some(team_id))) => {
+            let is_member: Option<(String,)> =
+                sqlx::query_as("SELECT role FROM team_members WHERE team_id = $1 AND user_id = $2")
+                    .bind(team_id)
+                    .bind(user_id)
+                    .fetch_optional(db)
+                    .await
+                    .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+            match is_member {
+                Some(_) => Ok(()),
+                None => Err(StatusCode::NOT_FOUND),
+            }
+        }
         _ => Err(StatusCode::NOT_FOUND),
     }
 }
@@ -132,15 +149,26 @@ async fn list_zones(
     State(state): State<AppState>,
     Extension(current_user): Extension<CurrentUser>,
 ) -> Json<Vec<ZoneResponse>> {
-    let rows: Vec<(String, bool)> =
-        sqlx::query_as("SELECT name, ns_verified FROM dns_zones WHERE user_id = $1 ORDER BY name")
-            .bind(&current_user.user.id)
-            .fetch_all(&state.db)
-            .await
-            .unwrap_or_default();
+    let rows: Vec<(String, bool, Option<Uuid>)> = sqlx::query_as(
+        r#"
+        SELECT z.name, z.ns_verified, z.team_id
+        FROM dns_zones z
+        WHERE z.user_id = $1
+           OR z.team_id IN (SELECT team_id FROM team_members WHERE user_id = $1)
+        ORDER BY z.name
+        "#,
+    )
+    .bind(&current_user.user.id)
+    .fetch_all(&state.db)
+    .await
+    .unwrap_or_default();
     Json(
         rows.into_iter()
-            .map(|(name, ns_verified)| ZoneResponse { name, ns_verified })
+            .map(|(name, ns_verified, team_id)| ZoneResponse {
+                name,
+                ns_verified,
+                team_id: team_id.map(|id| id.to_string()),
+            })
             .collect(),
     )
 }
@@ -169,10 +197,32 @@ async fn create_zone(
             .into_response();
     }
 
+    // Validate team_id if provided
+    if let Some(team_id) = req.team_id {
+        let is_admin: Option<(String,)> = sqlx::query_as(
+            "SELECT role FROM team_members WHERE team_id = $1 AND user_id = $2 AND (role = 'owner' OR role = 'admin')",
+        )
+        .bind(team_id)
+        .bind(&current_user.user.id)
+        .fetch_optional(&state.db)
+        .await
+        .map_err(|_| ())
+        .unwrap_or(None);
+
+        if is_admin.is_none() {
+            return (
+                StatusCode::FORBIDDEN,
+                Json(serde_json::json!({"error": "not authorized to create zones in this team"})),
+            )
+                .into_response();
+        }
+    }
+
     if state.dns_authority.create_zone(&name).await {
-        // Associate zone with the authenticated user
-        let _ = sqlx::query("UPDATE dns_zones SET user_id = $1 WHERE name = $2")
+        // Associate zone with the authenticated user and optionally a team
+        let _ = sqlx::query("UPDATE dns_zones SET user_id = $1, team_id = $2 WHERE name = $3")
             .bind(&current_user.user.id)
+            .bind(req.team_id)
             .bind(&name)
             .execute(&state.db)
             .await;
