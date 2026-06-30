@@ -16,6 +16,7 @@ pub(super) struct ApiKeyResponse {
     id: String,
     name: String,
     prefix: String,
+    team_id: Option<String>,
     created_at: String,
     last_used_at: Option<String>,
     revoked: bool,
@@ -30,6 +31,7 @@ pub(super) struct CreatedKeyResponse {
 #[derive(Deserialize)]
 pub(super) struct CreateKeyRequest {
     name: String,
+    team_id: Option<Uuid>,
 }
 
 impl From<crate::services::api_keys::ApiKey> for ApiKeyResponse {
@@ -38,6 +40,7 @@ impl From<crate::services::api_keys::ApiKey> for ApiKeyResponse {
             id: k.id.to_string(),
             name: k.name,
             prefix: k.prefix,
+            team_id: k.team_id.map(|id| id.to_string()),
             created_at: k.created_at.to_rfc3339(),
             last_used_at: k.last_used_at.map(|t| t.to_rfc3339()),
             revoked: k.revoked_at.is_some(),
@@ -72,7 +75,36 @@ pub(super) async fn create_key(
             .into_response();
     }
 
-    match state.api_keys.create(&current_user.user.id, &name).await {
+    // If team_id provided, validate user is team admin/owner
+    if let Some(team_id) = req.team_id {
+        let role: Option<(String,)> =
+            sqlx::query_as("SELECT role FROM team_members WHERE team_id = $1 AND user_id = $2")
+                .bind(team_id)
+                .bind(&current_user.user.id)
+                .fetch_optional(&state.db)
+                .await
+                .map_err(|_| ())
+                .unwrap_or(None);
+
+        match role.as_ref().map(|(r,)| r.as_str()) {
+            Some("owner") | Some("admin") => {}
+            _ => {
+                return (
+                    StatusCode::FORBIDDEN,
+                    Json(
+                        serde_json::json!({"error": "not authorized to create keys for this team"}),
+                    ),
+                )
+                    .into_response();
+            }
+        }
+    }
+
+    match state
+        .api_keys
+        .create(&current_user.user.id, &name, req.team_id)
+        .await
+    {
         Ok((key, raw_key)) => (
             StatusCode::CREATED,
             Json(

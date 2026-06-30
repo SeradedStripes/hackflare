@@ -15,6 +15,7 @@ pub(crate) struct ApiKey {
     pub(crate) name: String,
     pub(crate) prefix: String,
     pub(crate) key_id: Option<String>,
+    pub(crate) team_id: Option<Uuid>,
     pub(crate) created_at: DateTime<Utc>,
     pub(crate) last_used_at: Option<DateTime<Utc>>,
     pub(crate) revoked_at: Option<DateTime<Utc>>,
@@ -80,7 +81,12 @@ impl ApiKeysService {
         Self { db }
     }
 
-    pub(crate) async fn create(&self, user_id: &str, name: &str) -> Result<(ApiKey, String)> {
+    pub(crate) async fn create(
+        &self,
+        user_id: &str,
+        name: &str,
+        team_id: Option<Uuid>,
+    ) -> Result<(ApiKey, String)> {
         let raw = generate_raw_key();
         let (key_id, secret) = parse_v1_key(&raw).expect("generated key should be valid v1 format");
         let hash = hash_secret(secret, key_id);
@@ -88,9 +94,9 @@ impl ApiKeysService {
 
         let row = query(
             r#"
-            INSERT INTO api_keys (user_id, name, key_hash, prefix, key_id)
-            VALUES ($1, $2, $3, $4, $5)
-            RETURNING id, user_id, name, prefix, key_id, created_at, last_used_at, revoked_at
+            INSERT INTO api_keys (user_id, name, key_hash, prefix, key_id, team_id)
+            VALUES ($1, $2, $3, $4, $5, $6)
+            RETURNING id, user_id, name, prefix, key_id, team_id, created_at, last_used_at, revoked_at
             "#,
         )
         .bind(user_id)
@@ -98,6 +104,7 @@ impl ApiKeysService {
         .bind(&hash)
         .bind(&prefix)
         .bind(key_id)
+        .bind(team_id)
         .fetch_one(&self.db)
         .await?;
 
@@ -107,6 +114,7 @@ impl ApiKeysService {
             name: row.try_get("name")?,
             prefix: row.try_get("prefix")?,
             key_id: row.try_get("key_id")?,
+            team_id: row.try_get("team_id")?,
             created_at: row.try_get("created_at")?,
             last_used_at: row.try_get("last_used_at")?,
             revoked_at: row.try_get("revoked_at")?,
@@ -118,9 +126,10 @@ impl ApiKeysService {
     pub(crate) async fn list(&self, user_id: &str) -> Result<Vec<ApiKey>> {
         let keys = query_as::<_, ApiKey>(
             r#"
-            SELECT id, user_id, name, prefix, key_id, created_at, last_used_at, revoked_at
+            SELECT id, user_id, name, prefix, key_id, team_id, created_at, last_used_at, revoked_at
             FROM api_keys
             WHERE user_id = $1
+               OR team_id IN (SELECT team_id FROM team_members WHERE user_id = $1)
             ORDER BY created_at DESC
             "#,
         )
@@ -135,7 +144,12 @@ impl ApiKeysService {
             r#"
             UPDATE api_keys
             SET revoked_at = NOW()
-            WHERE id = $1 AND user_id = $2 AND revoked_at IS NULL
+            WHERE id = $1
+              AND revoked_at IS NULL
+              AND (
+                user_id = $2
+                OR team_id IN (SELECT team_id FROM team_members WHERE user_id = $2 AND (role = 'owner' OR role = 'admin'))
+              )
             "#,
         )
         .bind(id)
@@ -149,7 +163,7 @@ impl ApiKeysService {
         if let Some((key_id, secret)) = parse_v1_key(raw) {
             let row = query(
                 r#"
-                SELECT id, user_id, name, prefix, key_id, key_hash, created_at, last_used_at, revoked_at
+                SELECT id, user_id, name, prefix, key_id, team_id, key_hash, created_at, last_used_at, revoked_at
                 FROM api_keys
                 WHERE key_id = $1 AND revoked_at IS NULL
                 "#,
@@ -167,6 +181,7 @@ impl ApiKeysService {
                         name: row.try_get("name")?,
                         prefix: row.try_get("prefix")?,
                         key_id: row.try_get("key_id")?,
+                        team_id: row.try_get("team_id")?,
                         created_at: row.try_get("created_at")?,
                         last_used_at: row.try_get("last_used_at")?,
                         revoked_at: row.try_get("revoked_at")?,
@@ -179,7 +194,7 @@ impl ApiKeysService {
         let hash = hash_key(raw);
         let key = query_as::<_, ApiKey>(
             r#"
-            SELECT id, user_id, name, prefix, key_id, created_at, last_used_at, revoked_at
+            SELECT id, user_id, name, prefix, key_id, team_id, created_at, last_used_at, revoked_at
             FROM api_keys
             WHERE key_hash = $1 AND revoked_at IS NULL
             "#,
