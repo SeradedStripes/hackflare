@@ -50,4 +50,5 @@ export default [
       "routes/dash/domains/$domain/redirects/page.tsx"
     ),
   ]),
+  route("*", "routes/catch-all.tsx"),
 ] satisfies RouteConfig
